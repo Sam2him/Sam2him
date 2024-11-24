@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Group Voice Calling</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .user { width: 100px; height: 100px; border-radius: 50%; margin: 10px; }
+        .user-name { text-align: center; }
+        
+    </style>
+</head>
+<body>
+    <h2>Group Voice Calling</h2>
+    <div id="user-list"></div>
+    <button id="join-call">Join Call</button>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let localStream;
+        let peerConnections = {};
+
+        const joinCallButton = document.getElementById('join-call');
+        joinCallButton.onclick = joinCall;
+
+        function joinCall() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    localStream = stream;
+                    document.getElementById('user-list').innerHTML += `<div class="user"><audio autoplay muted><source src="${URL.createObjectURL(localStream)}"></audio></div>`;
+                    socket.emit('offer', { stream });
+                });
+        }
+
+        socket.on('offer', (offer) => {
+            // Handle the incoming offer and send an answer
+        });
+
+        socket.on('answer', (answer) => {
+            // Handle the answer and create peer connection
+        });
+
+        socket.on('candidate', (candidate) => {
+            // Handle ICE candidates
+        });
+    </script>
+</body>
+</html>
