@@ -3,47 +3,146 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Group Voice Calling</title>
+    <title>WebRTC Group Voice Call</title>
     <style>
-        body { font-family: Arial, sans-serif; }
-        .user { width: 100px; height: 100px; border-radius: 50%; margin: 10px; }
-        .user-name { text-align: center; }
-        
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        audio {
+            display: block;
+            margin: 10px auto;
+        }
     </style>
 </head>
 <body>
-    <h2>Group Voice Calling</h2>
-    <div id="user-list"></div>
-    <button id="join-call">Join Call</button>
+    <h1>WebRTC Group Voice Call</h1>
+    <button id="joinCall">Join Call</button>
+    <div id="status"></div>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-        const socket = io();
-        let localStream;
-        let peerConnections = {};
+        // Connect to the signaling server
+        const socket = io('https://sam2him-production.up.railway.app'); // Replace with your backend URL
+        const peerConnections = {};
+        const localStream = new MediaStream();
 
-        const joinCallButton = document.getElementById('join-call');
-        joinCallButton.onclick = joinCall;
+        document.getElementById('joinCall').onclick = async () => {
+            const roomId = "group-call"; // Static room ID for demo
+            const userId = socket.id;
 
-        function joinCall() {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    localStream = stream;
-                    document.getElementById('user-list').innerHTML += `<div class="user"><audio autoplay muted><source src="${URL.createObjectURL(localStream)}"></audio></div>`;
-                    socket.emit('offer', { stream });
-                });
+            document.getElementById('status').innerText = "Connecting to call...";
+            socket.emit('join-room', roomId, userId);
+
+            // Get local audio stream
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach((track) => localStream.addTrack(track));
+
+            // Play local audio
+            const localAudio = document.createElement('audio');
+            localAudio.srcObject = localStream;
+            localAudio.autoplay = true;
+            document.body.appendChild(localAudio);
+        };
+
+        // Listen for new users
+        socket.on('user-connected', (userId) => {
+            console.log(`${userId} connected`);
+            callUser(userId);
+        });
+
+        // Listen for users disconnecting
+        socket.on('user-disconnected', (userId) => {
+            console.log(`${userId} disconnected`);
+            if (peerConnections[userId]) peerConnections[userId].close();
+        });
+
+        function callUser(userId) {
+            const peerConnection = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' }
+                ]
+            });
+            peerConnections[userId] = peerConnection;
+
+            // Add local stream to peer connection
+            localStream.getTracks().forEach((track) => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            // Handle ICE candidates
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('ice-candidate', userId, event.candidate);
+                }
+            };
+
+            // Handle remote stream
+            peerConnection.ontrack = (event) => {
+                const remoteAudio = document.createElement('audio');
+                remoteAudio.srcObject = event.streams[0];
+                remoteAudio.autoplay = true;
+                document.body.appendChild(remoteAudio);
+            };
+
+            // Create offer
+            peerConnection.createOffer().then((offer) => {
+                peerConnection.setLocalDescription(offer);
+                socket.emit('offer', userId, offer);
+            });
         }
 
-        socket.on('offer', (offer) => {
-            // Handle the incoming offer and send an answer
+        // Handle ICE candidates
+        socket.on('ice-candidate', (userId, candidate) => {
+            if (peerConnections[userId]) {
+                peerConnections[userId].addIceCandidate(new RTCIceCandidate(candidate));
+            }
         });
 
-        socket.on('answer', (answer) => {
-            // Handle the answer and create peer connection
+        // Handle offers
+        socket.on('offer', (userId, offer) => {
+            const peerConnection = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' }
+                ]
+            });
+            peerConnections[userId] = peerConnection;
+
+            localStream.getTracks().forEach((track) => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('ice-candidate', userId, event.candidate);
+                }
+            };
+
+            peerConnection.ontrack = (event) => {
+                const remoteAudio = document.createElement('audio');
+                remoteAudio.srcObject = event.streams[0];
+                remoteAudio.autoplay = true;
+                document.body.appendChild(remoteAudio);
+            };
+
+            peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            peerConnection.createAnswer().then((answer) => {
+                peerConnection.setLocalDescription(answer);
+                socket.emit('answer', userId, answer);
+            });
         });
 
-        socket.on('candidate', (candidate) => {
-            // Handle ICE candidates
+        // Handle answers
+        socket.on('answer', (userId, answer) => {
+            if (peerConnections[userId]) {
+                peerConnections[userId].setRemoteDescription(new RTCSessionDescription(answer));
+            }
         });
     </script>
 </body>

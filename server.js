@@ -1,34 +1,57 @@
-// Signaling server ka code (server.js)
-const express = require("express");
-const http = require("http");
-const socketIo = require("socket.io");
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = new Server(server);
 
-// Public folder static files serve karega
-app.use(express.static("public")); // HTML client code yahan hoga
+// Enable CORS for communication between frontend and backend
+app.use(cors());
 
-const PORT = process.env.PORT || 3000;
+// Serve a test route
+app.get('/', (req, res) => {
+    res.send('WebRTC Signaling Server is running!');
+});
 
-io.on("connection", (socket) => {
-    console.log("User connected:", socket.id);
+// Socket.IO for WebRTC signaling
+io.on('connection', (socket) => {
+    console.log(`User connected: ${socket.id}`);
 
-    socket.on("join-room", (roomId) => {
+    // User joins a room
+    socket.on('join-room', (roomId, userId) => {
+        console.log(`${userId} joined room: ${roomId}`);
         socket.join(roomId);
-        console.log(`${socket.id} joined room: ${roomId}`);
-    });
 
-    socket.on("signal", (data) => {
-        io.to(data.roomId).emit("signal", data);
-    });
+        // Notify other users in the room
+        socket.to(roomId).emit('user-connected', userId);
 
-    socket.on("disconnect", () => {
-        console.log("User disconnected:", socket.id);
+        // Handle disconnection
+        socket.on('disconnect', () => {
+            console.log(`${userId} disconnected from room: ${roomId}`);
+            socket.to(roomId).emit('user-disconnected', userId);
+        });
+
+        // Handle WebRTC ICE candidates
+        socket.on('ice-candidate', (userId, candidate) => {
+            socket.to(roomId).emit('ice-candidate', userId, candidate);
+        });
+
+        // Handle WebRTC Offers
+        socket.on('offer', (userId, offer) => {
+            socket.to(roomId).emit('offer', userId, offer);
+        });
+
+        // Handle WebRTC Answers
+        socket.on('answer', (userId, answer) => {
+            socket.to(roomId).emit('answer', userId, answer);
+        });
     });
 });
 
+// Start the server
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
